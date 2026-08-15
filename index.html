@@ -303,7 +303,25 @@
       <div class="subfield" id="dropoffCustomFields"></div>
       <div class="field" style="margin-top:14px; margin-bottom:0;">
         <label>中途點（選填）<span class="en">Stop-over (optional)</span></label>
-        <input type="text" id="f-waypoint" placeholder="例如：中途停靠超商 / e.g. a convenience store on the way">
+        <div class="pill-group" style="margin-bottom:10px;">
+          <div class="pill selected" id="waypointToggleOff">不需要中途點<span class="en">No stop-over</span></div>
+          <div class="pill" id="waypointToggleOn">需要中途停靠<span class="en">Add a stop-over</span></div>
+        </div>
+        <div class="subfield" id="waypointFields">
+          <div class="field" style="margin-bottom:12px;">
+            <label>中途點縣市<span class="en">Stop-over City / County</span></label>
+            <select id="wp-city"><option value="">請選擇縣市 / Select city or county</option></select>
+          </div>
+          <div class="field" style="margin-bottom:12px;">
+            <label>中途點行政區<span class="en">Stop-over District</span></label>
+            <select id="wp-district"><option value="">請先選擇縣市 / Select city/county first</option></select>
+          </div>
+          <div class="field" style="margin-bottom:0;">
+            <label>中途點地標／說明（選填）<span class="en">Landmark / Note (optional)</span></label>
+            <input type="text" id="wp-note" placeholder="例如：中途停靠超商 / e.g. a convenience store on the way">
+          </div>
+          <div style="font-size:11px; color:var(--muted); margin-top:10px; line-height:1.6;">系統將依中途點位置概估停靠費用並計入預估總價，實際金額將由客服人員確認後與您聯繫，感謝您的耐心等候。<span class="en" style="display:block; margin-top:3px;">The system estimates the stop-over fee based on location and includes it in the total. Our staff will confirm the final amount with you.</span></div>
+        </div>
       </div>
       <div class="error-text" id="err-3">請選擇下車類型並完整填寫地點資訊（機場送機需填寫航班編號）。<span class="en">Please select a drop-off type and complete the location details (flight number required for airport drop-off).</span></div>
     </div>
@@ -427,6 +445,7 @@
           </div>
           <div class="barcode"></div>
         </div>
+        <div id="pass-waypoint-note" style="display:none; padding:0 18px 16px; font-size:10.5px; color:var(--muted); line-height:1.6;">＊已包含中途點預估停靠費，正確金額將由客服人員確認後與您聯繫。<span class="en" style="display:block; margin-top:2px;">*Includes an estimated stop-over fee; our staff will confirm the final amount with you.</span></div>
       </div>
 
       <div class="send-row">
@@ -962,7 +981,8 @@
     name:"", phone:"", date:"", time:"",
     roundTrip:false, returnDate:"", returnTime:"", returnFlight:"",
     pickupType:"", pAirport:"桃園國際機場", pTerminal:"第一航廈", pFlight:"", pCity:"", pDistrict:"", pLandmark:"", pAddress:"",
-    dropoffType:"", dAirport:"桃園國際機場", dTerminal:"第一航廈", dFlight:"", dCity:"", dDistrict:"", dLandmark:"", dAddress:"", waypoint:"",
+    dropoffType:"", dAirport:"桃園國際機場", dTerminal:"第一航廈", dFlight:"", dCity:"", dDistrict:"", dLandmark:"", dAddress:"",
+    hasWaypoint:false, waypointCity:"", waypointDistrict:"", waypoint:"", waypointFee:0,
     pax:"", luggage:{},
     vehicleType:"", addons:{}, addonQty:{}, signContent:"", price:0, outboundPrice:0, returnPrice:0
   };
@@ -1026,6 +1046,58 @@
   }
   buildLocationPicker(document.getElementById('pickupCustomFields'), 'p');
   buildLocationPicker(document.getElementById('dropoffCustomFields'), 'd');
+
+  // ---------- 中途點：僅需縣市＋行政區(用於自動試算停靠費)，另加地標說明選填欄 ----------
+  const wpCitySel = document.getElementById('wp-city');
+  const wpDistSel = document.getElementById('wp-district');
+  Object.keys(DISTRICTS).forEach(c=>{
+    const opt = document.createElement('option');
+    opt.value = c; opt.textContent = c;
+    wpCitySel.appendChild(opt);
+  });
+  wpCitySel.addEventListener('change', ()=>{
+    wpDistSel.innerHTML = '<option value="">請選擇行政區 / Select district</option>' + (DISTRICTS[wpCitySel.value]||[]).map(d=>'<option value="'+d+'">'+d+'</option>').join('');
+  });
+  document.getElementById('waypointToggleOff').addEventListener('click', ()=>{
+    formData.hasWaypoint = false;
+    document.getElementById('waypointToggleOff').classList.add('selected');
+    document.getElementById('waypointToggleOn').classList.remove('selected');
+    document.getElementById('waypointFields').classList.remove('show');
+  });
+  document.getElementById('waypointToggleOn').addEventListener('click', ()=>{
+    formData.hasWaypoint = true;
+    document.getElementById('waypointToggleOn').classList.add('selected');
+    document.getElementById('waypointToggleOff').classList.remove('selected');
+    document.getElementById('waypointFields').classList.add('show');
+  });
+
+  function computeWaypointFee(){
+    if(!formData.hasWaypoint || !formData.waypointCity || !formData.waypointDistrict) return 0;
+    const ctx = getTripContext();
+    if(!ctx) return 0;
+    if(formData.waypointCity === ctx.city && formData.waypointDistrict === ctx.district) return 100;
+    if(formData.waypointCity === ctx.city) return 200;
+    return 300;
+  }
+  function waypointFeeLabel(){
+    if(!formData.hasWaypoint || !formData.waypointCity || !formData.waypointDistrict) return '';
+    const ctx = getTripContext();
+    if(!ctx) return '';
+    if(formData.waypointCity === ctx.city && formData.waypointDistrict === ctx.district){
+      return '同行政區 Same District：預估 +NT$100（Estimated, 實際金額以客服確認為準 final amount confirmed by staff）';
+    }
+    if(formData.waypointCity === ctx.city){
+      return '跨區 Cross-District：預估 +NT$200（Estimated, 實際金額以客服確認為準 final amount confirmed by staff）';
+    }
+    return '跨縣市 Cross-County：預估 +NT$300（Estimated, 實際金額以客服確認為準，非順路可能另計 final amount confirmed by staff, may vary if not en route）';
+  }
+  function hasWaypointSet(){
+    return !!(formData.hasWaypoint && formData.waypointCity && formData.waypointDistrict);
+  }
+  function waypointDisplayText(){
+    if(!hasWaypointSet()) return '';
+    return formData.waypointCity + formData.waypointDistrict + (formData.waypoint ? '（' + formData.waypoint + '）' : '') + '　+NT$' + (formData.waypointFee || computeWaypointFee());
+  }
 
   function buildAirportPicker(prefix){
     const airportSel = document.getElementById(prefix+'-airport');
@@ -1317,8 +1389,19 @@
         collectLocation('d');
         ok = !!formData.dCity && !!formData.dDistrict && (formData.dLandmark || formData.dAddress);
       }
-      const waypointInput = document.getElementById('f-waypoint');
-      formData.waypoint = waypointInput ? waypointInput.value.trim() : '';
+      const waypointCitySel = document.getElementById('wp-city');
+      const waypointDistSel = document.getElementById('wp-district');
+      const waypointNoteInput = document.getElementById('wp-note');
+      if(formData.hasWaypoint){
+        formData.waypointCity = waypointCitySel ? waypointCitySel.value : '';
+        formData.waypointDistrict = waypointDistSel ? waypointDistSel.value : '';
+        formData.waypoint = waypointNoteInput ? waypointNoteInput.value.trim() : '';
+      } else {
+        formData.waypointCity = '';
+        formData.waypointDistrict = '';
+        formData.waypoint = '';
+      }
+      formData.waypointFee = computeWaypointFee();
       showError(3, !ok); return ok;
     }
     if(step===4){
@@ -1369,7 +1452,8 @@
   function renderSummary(){
     const basePrice = formData.vehicleType ? (fareForVehicle(formData.vehicleType) || 0) : 0;
     const returnPrice = (formData.roundTrip && formData.vehicleType) ? (fareForReturnVehicle(formData.vehicleType) || 0) : 0;
-    const price = basePrice + returnPrice + addonsPaidTotal();
+    formData.waypointFee = computeWaypointFee();
+    const price = basePrice + returnPrice + addonsPaidTotal() + formData.waypointFee;
     formData.price = price;
     formData.outboundPrice = basePrice;
     formData.returnPrice = returnPrice;
@@ -1381,8 +1465,14 @@
     document.getElementById('pass-phone').textContent = formData.phone || '—';
     document.getElementById('pass-date').textContent = formData.date || '—';
     document.getElementById('pass-time').textContent = formData.time || '—';
-    document.getElementById('pass-waypoint-wrap').style.display = formData.waypoint ? '' : 'none';
-    document.getElementById('pass-waypoint').textContent = formData.waypoint || '—';
+    const hasWaypoint = formData.hasWaypoint && formData.waypointCity && formData.waypointDistrict;
+    document.getElementById('pass-waypoint-wrap').style.display = hasWaypoint ? '' : 'none';
+    if(hasWaypoint){
+      const wpLoc = formData.waypointCity + formData.waypointDistrict + (formData.waypoint ? '（'+formData.waypoint+'）' : '');
+      document.getElementById('pass-waypoint').innerHTML = wpLoc + '<br><span style="font-size:11px; color:var(--muted);">' + waypointFeeLabel() + '</span>';
+    } else {
+      document.getElementById('pass-waypoint').textContent = '—';
+    }
     document.getElementById('pass-vehicle').textContent = formData.vehicleType || '—';
     document.getElementById('pass-pax').textContent = formData.pax ? formData.pax+' 人' : '—';
     document.getElementById('pass-baggage').textContent = luggageTotal()+' 件（'+luggageText()+'）';
@@ -1420,6 +1510,7 @@
       fareBreakdown.classList.remove('show');
       fareLabel.textContent = 'FARE 預估金額 NT$';
     }
+    document.getElementById('pass-waypoint-note').style.display = hasWaypointSet() ? '' : 'none';
   }
   document.getElementById('pass-price').addEventListener('input', e=>{ formData.price = e.target.value; });
 
@@ -1480,7 +1571,7 @@
       lines.push("▍去程 Outbound" + (tripCtx ? '（' + tripCtx.tripType + '）' : ''));
       lines.push("用車 Time：" + (formData.date || '') + ' ' + (formData.time || ''));
       lines.push("上車 Pick-up：" + pickupText + (outboundAirportSide === 'pickup' && outboundFlight ? '（航班 Flight ' + outboundFlight + '）' : ''));
-      if (formData.waypoint) lines.push("中途 Stop-over：" + formData.waypoint);
+      if (hasWaypointSet()) lines.push("中途 Stop-over：" + waypointDisplayText());
       lines.push("下車 Drop-off：" + dropoffText + (outboundAirportSide === 'dropoff' && outboundFlight ? '（航班 Flight ' + outboundFlight + '）' : ''));
       lines.push("");
 
@@ -1494,6 +1585,7 @@
       lines.push("去程車資 Outbound Fare：NT$ " + (Number(formData.outboundPrice)||0).toLocaleString() + "｜回程車資 Return Fare：NT$ " + (Number(formData.returnPrice)||0).toLocaleString());
       lines.push("");
       lines.push("來回預估總價 Total Estimated Fare：NT$ " + (Number(formData.price)||0).toLocaleString());
+      if (hasWaypointSet()) lines.push("＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff");
     } else {
       const pickupText = shortLocation('p', formData.pickupType, formData.pTerminal, formData.pAirport);
       const dropoffText = shortLocation('d', formData.dropoffType, formData.dTerminal, formData.dAirport);
@@ -1503,10 +1595,11 @@
       lines.push("用車 Time：" + (formData.date || '') + ' ' + (formData.time || ''));
       lines.push("行程 Trip Type：" + (tripCtx ? tripCtx.tripType : '—'));
       lines.push("上車 Pick-up：" + pickupText);
-      if (formData.waypoint) lines.push("中途 Stop-over：" + formData.waypoint);
+      if (hasWaypointSet()) lines.push("中途 Stop-over：" + waypointDisplayText());
       lines.push("下車 Drop-off：" + dropoffText + (flightNo ? '（航班 Flight ' + flightNo + '）' : ''));
       lines.push("");
       lines.push("預估價格 Estimated Fare：NT$ " + (Number(formData.price)||0).toLocaleString());
+      if (hasWaypointSet()) lines.push("＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff");
     }
 
     lines.push(
@@ -1566,7 +1659,7 @@
         flexRow('用車 Time', (formData.date || '') + ' ' + (formData.time || '')),
         flexRow('上車 Pick-up', pickupText + (outboundAirportSide === 'pickup' && outboundFlight ? '（航班 Flight ' + outboundFlight + '）' : ''))
       );
-      if (formData.waypoint) bodyContents.push(flexRow('中途 Stop-over', formData.waypoint));
+      if (hasWaypointSet()) bodyContents.push(flexRow('中途 Stop-over', waypointDisplayText()));
       bodyContents.push(
         flexRow('下車 Drop-off', dropoffText + (outboundAirportSide === 'dropoff' && outboundFlight ? '（航班 Flight ' + outboundFlight + '）' : '')),
         flexRow('去程車資 Outbound Fare', 'NT$ ' + (Number(formData.outboundPrice)||0).toLocaleString())
@@ -1585,6 +1678,11 @@
         flexSeparator(),
         flexRow('來回預估總價 Total Fare', 'NT$ ' + priceVal.toLocaleString(), '#FFB454')
       );
+      if (hasWaypointSet()) {
+        bodyContents.push(
+          { type: 'text', text: '＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff', size: 'xxs', color: '#8B94A7', wrap: true, margin: 'xs' }
+        );
+      }
     } else {
       const pickupText = shortLocation('p', formData.pickupType, formData.pTerminal, formData.pAirport);
       const dropoffText = shortLocation('d', formData.dropoffType, formData.dTerminal, formData.dAirport);
@@ -1597,7 +1695,7 @@
         flexRow('行程類型 Trip Type', tripCtx ? tripCtx.tripType : '—'),
         flexRow('上車 Pick-up', pickupText)
       );
-      if (formData.waypoint) bodyContents.push(flexRow('中途 Stop-over', formData.waypoint));
+      if (hasWaypointSet()) bodyContents.push(flexRow('中途 Stop-over', waypointDisplayText()));
       bodyContents.push(
         flexRow('下車 Drop-off', dropoffText + (flightNo ? '（航班 Flight ' + flightNo + '）' : ''))
       );
@@ -1605,6 +1703,11 @@
         flexSeparator(),
         flexRow('預估價格 Estimated Fare', 'NT$ ' + priceVal.toLocaleString(), '#FFB454')
       );
+      if (hasWaypointSet()) {
+        bodyContents.push(
+          { type: 'text', text: '＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff', size: 'xxs', color: '#8B94A7', wrap: true, margin: 'xs' }
+        );
+      }
     }
 
     bodyContents.push(
@@ -1664,7 +1767,7 @@
 
   (function init(){
     if (typeof liff !== 'undefined') {
-      liff.init({ liffId: "2011073331-vpLLrP3E" }).catch(err => console.error("LIFF 初始化失敗", err));
+      liff.init({ liffId: "2010998101-Tsfn1Q5r" }).catch(err => console.error("LIFF 初始化失敗", err));
     }
     const today = new Date().toISOString().split('T')[0];
     const dateInput = document.getElementById('f-date');
