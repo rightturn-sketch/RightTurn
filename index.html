@@ -485,8 +485,8 @@
         <button class="btn-copy" onclick="copyText()">複製預約內容<span class="btn-en">Copy Booking Details</span></button>
       </div>
       <div class="toast" id="toast">已複製到剪貼簿 Copied to clipboard</div>
-      <div class="note">離島地區或無對應報價將顯示 NT$0，請洽客服確認車資。<br>點擊「傳送到 LINE」將開啟 LINE 分享視窗，選擇聊天對象送出。</div>
-      <div class="note-en">Offshore islands or unmatched routes will show NT$0 — please contact us to confirm the fare.<br>Tapping "Send to LINE" opens the LINE share window so you can choose a recipient.</div>
+      <div class="note">桃園機場以外之機場（松山／台中／高雄）暫不提供線上估價，請洽客服確認車資；離島地區或無對應報價亦同。<br>點擊「傳送到 LINE」將開啟 LINE 分享視窗，選擇聊天對象送出。</div>
+      <div class="note-en">Airports other than Taoyuan (Songshan / Taichung / Kaohsiung) are not priced online — please contact us for a quote; this also applies to offshore islands or unmatched routes.<br>Tapping "Send to LINE" opens the LINE share window so you can choose a recipient.</div>
     </div>
 
   </div>
@@ -976,7 +976,11 @@
       const tier = vehicleType === "8/9人座商務車" ? "大車" : "小車";
       return getFare(city, district, tripType, tier, airportName);
     }
-    return getCityAirportFare(airportName, city, district, tripType, vehicleType);
+    // 除桃園機場外，其他機場一律不代入價格，統一顯示「請洽客服報價」
+    return null;
+  }
+  function isQuoteOnlyAirport(airportName){
+    return airportName !== "桃園國際機場";
   }
 
   const LUGGAGE_SIZES = [
@@ -1583,6 +1587,8 @@
 
   function renderSummary(){
     document.getElementById('pass-order-number').textContent = formData.orderNumber || '—';
+    const tripCtxForQuote = getTripContext();
+    const quoteOnly = !!(tripCtxForQuote && isQuoteOnlyAirport(tripCtxForQuote.airport));
     const basePrice = formData.vehicleType ? (fareForVehicle(formData.vehicleType) || 0) : 0;
     const returnPrice = (formData.roundTrip && formData.vehicleType) ? (fareForReturnVehicle(formData.vehicleType) || 0) : 0;
     formData.waypointFee = computeWaypointFee();
@@ -1614,7 +1620,22 @@
     const signContent = signContentLine();
     document.getElementById('pass-signcontent-wrap').style.display = signContent ? '' : 'none';
     document.getElementById('pass-signcontent').textContent = signContent || '—';
-    document.getElementById('pass-price').value = price;
+    const passPriceEl = document.getElementById('pass-price');
+    if(quoteOnly){
+      passPriceEl.style.display = 'none';
+    } else {
+      passPriceEl.style.display = '';
+      passPriceEl.value = price;
+    }
+    let quoteNoteEl = document.getElementById('pass-quote-note');
+    if(!quoteNoteEl){
+      quoteNoteEl = document.createElement('div');
+      quoteNoteEl.id = 'pass-quote-note';
+      quoteNoteEl.style.cssText = 'font-family:\'IBM Plex Mono\',monospace; font-weight:600; color:var(--amber); font-size:14px;';
+      passPriceEl.parentNode.appendChild(quoteNoteEl);
+    }
+    quoteNoteEl.style.display = quoteOnly ? '' : 'none';
+    quoteNoteEl.textContent = '請洽客服報價 / Contact us for quote';
 
     const returnTear = document.getElementById('pass-return-tear');
     const returnSection = document.getElementById('pass-return-section');
@@ -1643,14 +1664,14 @@
         flightRow.style.display = 'none';
       }
       fareBreakdown.classList.add('show');
-      document.getElementById('pass-outbound-fare').textContent = basePrice.toLocaleString();
-      document.getElementById('pass-return-fare').textContent = returnPrice.toLocaleString();
-      fareLabel.textContent = 'FARE 來回預估總價 NT$';
+      document.getElementById('pass-outbound-fare').textContent = quoteOnly ? '請洽客服報價' : basePrice.toLocaleString();
+      document.getElementById('pass-return-fare').textContent = quoteOnly ? '請洽客服報價' : returnPrice.toLocaleString();
+      fareLabel.textContent = quoteOnly ? 'FARE 來回預估總價' : 'FARE 來回預估總價 NT$';
     } else {
       returnTear.style.display = 'none';
       returnSection.style.display = 'none';
       fareBreakdown.classList.remove('show');
-      fareLabel.textContent = 'FARE 預估金額 NT$';
+      fareLabel.textContent = quoteOnly ? 'FARE 預估金額' : 'FARE 預估金額 NT$';
     }
     document.getElementById('pass-waypoint-note').style.display = (hasWaypointSet() || hasReturnWaypointSet()) ? '' : 'none';
   }
@@ -1686,6 +1707,8 @@
     const vehicleLabel = VEHICLE_LABELS[formData.vehicleType] || formData.vehicleType || '未選擇';
     const addonsLine = addonsText();
     const tripCtx = getTripContext();
+    const quoteOnly = !!(tripCtx && isQuoteOnlyAirport(tripCtx.airport));
+    const fareText = (n) => quoteOnly ? '請洽客服報價 Contact us for quote' : ('NT$ ' + (Number(n)||0).toLocaleString());
 
     const lines = [
       "【機場接送預約 Airport Transfer" + (formData.roundTrip ? '・來回 Round Trip' : '') + "】",
@@ -1726,9 +1749,9 @@
       lines.push("下車 Drop-off：" + returnDropoffText() + (returnAirportSide === 'dropoff' && formData.returnFlight ? '（航班 Flight ' + formData.returnFlight + '）' : ''));
       lines.push("");
 
-      lines.push("去程車資 Outbound Fare：NT$ " + (Number(formData.outboundPrice)||0).toLocaleString() + "｜回程車資 Return Fare：NT$ " + (Number(formData.returnPrice)||0).toLocaleString());
+      lines.push("去程車資 Outbound Fare：" + fareText(formData.outboundPrice) + "｜回程車資 Return Fare：" + fareText(formData.returnPrice));
       lines.push("");
-      lines.push("來回預估總價 Total Estimated Fare：NT$ " + (Number(formData.price)||0).toLocaleString());
+      lines.push("來回預估總價 Total Estimated Fare：" + fareText(formData.price));
       if (hasWaypointSet() || hasReturnWaypointSet()) lines.push("＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff");
     } else {
       const pickupText = shortLocation('p', formData.pickupType, formData.pTerminal, formData.pAirport);
@@ -1742,7 +1765,7 @@
       if (hasWaypointSet()) lines.push("中途 Stop-over：" + waypointDisplayText());
       lines.push("下車 Drop-off：" + dropoffText + (flightNo ? '（航班 Flight ' + flightNo + '）' : ''));
       lines.push("");
-      lines.push("預估價格 Estimated Fare：NT$ " + (Number(formData.price)||0).toLocaleString());
+      lines.push("預估價格 Estimated Fare：" + fareText(formData.price));
       if (hasWaypointSet()) lines.push("＊已含中途點預估費用，正確金額將由客服確認 *Includes estimated stop-over fee, confirmed by staff");
     }
 
@@ -1776,6 +1799,8 @@
     const vehicleLabel = VEHICLE_LABELS[formData.vehicleType] || formData.vehicleType || '未選擇';
     const priceVal = Number(formData.price) || 0;
     const tripCtx = getTripContext();
+    const quoteOnly = !!(tripCtx && isQuoteOnlyAirport(tripCtx.airport));
+    const fareFlexText = (n) => quoteOnly ? '請洽客服報價' : ('NT$ ' + (Number(n)||0).toLocaleString());
 
     const bodyContents = [
       flexRow('訂單編號', formData.orderNumber || '—', '#FFB454'),
@@ -1807,7 +1832,7 @@
       if (hasWaypointSet()) bodyContents.push(flexRow('中途 Stop-over', waypointDisplayText()));
       bodyContents.push(
         flexRow('下車 Drop-off', dropoffText + (outboundAirportSide === 'dropoff' && outboundFlight ? '（航班 ' + outboundFlight + '）' : '')),
-        flexRow('去程車資', 'NT$ ' + (Number(formData.outboundPrice)||0).toLocaleString())
+        flexRow('去程車資', fareFlexText(formData.outboundPrice))
       );
 
       bodyContents.push(
@@ -1819,12 +1844,12 @@
       if (hasReturnWaypointSet()) bodyContents.push(flexRow('中途 Stop-over', returnWaypointDisplayText()));
       bodyContents.push(
         flexRow('下車 Drop-off', returnDropoffText() + (returnAirportSide === 'dropoff' && formData.returnFlight ? '（航班 ' + formData.returnFlight + '）' : '')),
-        flexRow('回程車資', 'NT$ ' + (Number(formData.returnPrice)||0).toLocaleString())
+        flexRow('回程車資', fareFlexText(formData.returnPrice))
       );
 
       bodyContents.push(
         flexSeparator(),
-        flexRow('來回預估總價', 'NT$ ' + priceVal.toLocaleString(), '#FFB454')
+        flexRow('來回預估總價', fareFlexText(priceVal), '#FFB454')
       );
     } else {
       const pickupText = shortLocation('p', formData.pickupType, formData.pTerminal, formData.pAirport);
@@ -1844,7 +1869,7 @@
       );
       bodyContents.push(
         flexSeparator(),
-        flexRow('預估價格', 'NT$ ' + priceVal.toLocaleString(), '#FFB454')
+        flexRow('預估價格', fareFlexText(priceVal), '#FFB454')
       );
     }
 
@@ -1852,7 +1877,7 @@
     if (hasWaypointSet() || hasReturnWaypointSet()) {
       footerNotes.push({ type: 'text', text: '＊已含中途點預估費用，正確金額將由客服確認', size: 'xxs', color: '#5C6478', wrap: true, margin: footerNotes.length ? 'xs' : 'md' });
     }
-    footerNotes.push({ type: 'text', text: '離島地區或無對應報價將顯示 NT$0，請洽客服確認車資。', size: 'xxs', color: '#5C6478', wrap: true, margin: footerNotes.length ? 'xs' : 'md' });
+    footerNotes.push({ type: 'text', text: '桃園機場以外之機場暫不提供線上估價，請洽客服確認車資；離島地區或無對應報價亦同。', size: 'xxs', color: '#5C6478', wrap: true, margin: footerNotes.length ? 'xs' : 'md' });
 
     return {
       type: 'bubble',
